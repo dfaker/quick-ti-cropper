@@ -31,6 +31,8 @@ images are saved into `.\outdir\`
 
 ffmpeg
 
+## usage
+
 Pass one or more video files a prameter:
 
 `cropper.py Z:\\somefolder\\video1.mp4`
