@@ -1,5 +1,5 @@
 # quick-ti-cropper
-Quick cropping utility to grab 1:1 ratio sections from a folder of images
+Quick manual cropping utility to grab 1:1 ratio sections from a folder of images
 
 # requirements
 
