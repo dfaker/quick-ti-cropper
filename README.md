@@ -1,6 +1,8 @@
 # quick-ti-cropper
 Quick manual cropping utility to grab 1:1 ratio sections from a folder of images
 
+# cropper.py
+
 ## requirements
 
 `pip install opencv-python`
@@ -35,6 +37,6 @@ ffmpeg
 
 Pass one or more video files a parameter:
 
-`cropper.py Z:\\somefolder\\video1.mp4`
+`getframes.py Z:\\somefolder\\video1.mp4`
 
 will extract a frame once every 60 seconds. and place it in the '.\frames\' directory
