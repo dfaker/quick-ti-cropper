@@ -17,7 +17,9 @@ or to shuffle multiple folders:
 `cropper.py shuffle Z:\\somefolder\\somewhere Z:\\someotherfolder\\somewhere`
 
 **Space** for next image.
+
 **Mousewheel** for resizing the box
+
 **Click** to capture the hilighted square
 
 images are saved into `\outdir\`
