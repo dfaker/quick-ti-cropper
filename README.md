@@ -7,7 +7,7 @@ Quick manual cropping utility to grab 1:1 ratio sections from a folder of images
 
 ## usage
 
-Pass a folder of images as a prameter:
+Pass a folder of images as a parameter:
 `cropper.py Z:\\somefolder\\somewhere`
 
 or to shuffle:
@@ -33,7 +33,7 @@ ffmpeg
 
 ## usage
 
-Pass one or more video files a prameter:
+Pass one or more video files a parameter:
 
 `cropper.py Z:\\somefolder\\video1.mp4`
 
