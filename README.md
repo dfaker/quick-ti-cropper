@@ -38,7 +38,7 @@ Optional Args:
 
 images are saved into .\\outdir\\
 
-![image](https://user-images.githubusercontent.com/35278260/195849586-7ada7249-275f-4dd6-9069-5518bfab46ac.png)
+![image](https://user-images.githubusercontent.com/35278260/196969198-acc055e0-a77d-4db4-9e97-f1e836bd2f90.png)
 
 # getframes.py
 
