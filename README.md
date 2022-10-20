@@ -18,12 +18,25 @@ or to shuffle:
 or to shuffle multiple folders:
 `cropper.py shuffle Z:\\somefolder\\somewhere Z:\\someotherfolder\\somewhere`
 
-- **Space** - for next image.
-- **Mousewheel** - for resizing the box.
-- **Click** - to capture the hilighted square.
-- **Q** - to quit.
+Pass a folder of images as a prameter:
 
-images are saved into `.\outdir\`
+script.py [OptionalArgs] Z:\\somefolder\\somewhere
+
+ - **Right Click** or **Space** for next image.
+ - **Mousewheel** for resizing the box, Shift tot resize faster
+ - **Left Click** to capture the hilighted square
+ - **Left Click and Drag** to evenly spread a line of crops.
+ - **Ctrl and Mousewheel** Change the overlap of crops when dragging.
+
+Optional Args:
+
+ - **SHUFFLE** - Shuffle Images.
+ - **ONECLICK** - Jump to next image on every click.
+ - **LARGESTFIRST** - Sort files by size, largest to smallest.
+ - **MAXCROP** - Initialize on each image with the largest possible crop size.
+ - **DARKENBG** - Darken the unselected areas of the image in preview.
+
+images are saved into .\\outdir\\
 
 ![image](https://user-images.githubusercontent.com/35278260/195849586-7ada7249-275f-4dd6-9069-5518bfab46ac.png)
 
