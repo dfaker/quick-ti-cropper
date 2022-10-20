@@ -20,7 +20,7 @@ or to shuffle multiple folders:
 
 Pass a folder of images as a prameter:
 
-script.py [OptionalArgs] Z:\\somefolder\\somewhere
+cropper.py [OptionalArgs] Z:\\somefolder\\somewhere
 
  - **Right Click** or **Space** for next image.
  - **Mousewheel** for resizing the box, Shift tot resize faster
