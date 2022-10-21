@@ -7,10 +7,17 @@ Quick manual cropping utility to grab 1:1 ratio sections from a folder of images
 
 `pip install opencv-python`
 
+Reading Video files requires ffmpeg.
+
 ## usage
 
-Pass a folder of images as a parameter:
-`cropper.py Z:\\somefolder\\somewhere`
+Pass a folder of images or videos, or single files  as a prameter:
+
+`cropper.py [OptionalArgs] Z:\\somefolder\\somewhere`
+
+`cropper.py [OptionalArgs] Z:\\somefolder\\somewhere\\test.png`
+
+`cropper.py [OptionalArgs] Z:\\somefolder\\somewhere\\test.mp4`
 
 or to shuffle:
 `cropper.py shuffle Z:\\somefolder\\somewhere`
@@ -35,7 +42,7 @@ Optional Args:
  - **LARGESTFIRST** - Sort files by size, largest to smallest.
  - **MAXCROP** - Initialize on each image with the largest possible crop size.
  - **DARKENBG** - Darken the unselected areas of the image in preview.
-
+ - **IFRAME_GAP=N** - When cropping video frames, wait at least N seconds between Key frames.
 images are saved into .\\outdir\\
 
 ![image](https://user-images.githubusercontent.com/35278260/196969198-acc055e0-a77d-4db4-9e97-f1e836bd2f90.png)
