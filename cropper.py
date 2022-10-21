@@ -176,13 +176,15 @@ def videoFrameGenerator(video_path):
 
     if w and h:
 
-        cmd = (['ffmpeg'] + ['-i', video_path] +
-               ['-loglevel',  'error',
+        cmd = (['ffmpeg', "-discard", "nokey",
+                '-ss', '{}'.format(video_start),
+                '-i', video_path,
+                '-loglevel',  'error',
                 '-f',         'image2pipe',
-                '-ss',        '{}'.format(video_start),
-                '-vf',        'select=eq(pict_type\\,I)*(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
+                "-an", "-sn", '-dn',
+                '-vf',        'select=(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
                 "-pix_fmt",   'bgr24',
-                "-vsync", "drop",
+                "-vsync",     "vfr",
                 '-vcodec',    'rawvideo', '-'])
 
         proc = sp.Popen(cmd, **popen_params)
