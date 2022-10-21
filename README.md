@@ -43,9 +43,15 @@ Optional Args:
  - **MAXCROP** - Initialize on each image with the largest possible crop size.
  - **DARKENBG** - Darken the unselected areas of the image in preview.
  - **IFRAME_GAP=N** - When cropping video frames, wait at least N seconds between Key frames.
+ - **VIDEO_START=N** - When cropping video frames, Sart this many seconds or HH:MM:SS into the video.
+
+ 
 images are saved into .\\outdir\\
 
 ![image](https://user-images.githubusercontent.com/35278260/196969198-acc055e0-a77d-4db4-9e97-f1e836bd2f90.png)
+
+![image](https://user-images.githubusercontent.com/35278260/197090519-5381d622-47b8-45ac-bdc6-be30f6f7f18a.png)
+
 
 # getframes.py
 
