@@ -5,11 +5,15 @@ import random
 import sys
 import os
 import math
+import subprocess as sp
+import json
 
 print("""
-Pass a folder of images as a prameter:
+Pass a folder of images or videos, or single files  as a prameter:
 
 cropper.py [OptionalArgs] Z:\\somefolder\\somewhere
+cropper.py [OptionalArgs] Z:\\somefolder\\somewhere\\test.png
+cropper.py [OptionalArgs] Z:\\somefolder\\somewhere\\test.mp4
 
 Right Click or Space for next image.
 Mousewheel for resizing the box, Shift tot resize faster
@@ -24,6 +28,7 @@ ONECLICK - Jump to next image on every click.
 LARGESTFIRST - Sort files by size, largest to smallest.
 MAXCROP - Initialize on each image with the largest possible crop size.
 DARKENBG - Darken the unselected areas of the image in preview.
+IFRAME_GAP=N - When cropping video frames, wait at least N seconds between Key frames.
 
 images are saved into .\\outdir\\
 
@@ -40,30 +45,46 @@ one_click = False
 largest_first = False
 max_crop = False
 darken_bg = False
+seconds_between_iframes = 10
 
 for source_folder in sys.argv[1:]:
     if source_folder.upper() == 'SHUFFLE':
+        print('ARG SHUFFLE=True')
         shuffle = True
         continue
     if source_folder.upper() == 'ONECLICK':
+        print('ARG ONECLICK=True')
         one_click = True
         continue
     if source_folder.upper() == 'LARGESTFIRST':
+        print('ARG LARGESTFIRST=True')
         largest_first = True
         continue
     if source_folder.upper() == 'MAXCROP':
+        print('ARG MAXCROP=True')
         max_crop = True
         continue
     if source_folder.upper() == 'DARKENBG':
+        print('ARG DARKENBG=True')
         darken_bg = True
         continue
+    if 'IFRAME_GAP=' in source_folder:
+        try:
+            seconds_between_iframes = float(source_folder.split('=')[-1])
+            print('ARG IFRAME_GAP=', seconds_between_iframes)
+        except Exception as e:
+            print('Setting ARG IFRAME_GAP Failed')
+        continue
 
-    if not os.path.isdir(source_folder):
+
+    if os.path.isfile(source_folder):
+        files.append(source_folder)
+    elif not os.path.isdir(source_folder):
         print('source_folder', source_folder, 'does not exist.')
         continue
 
     for r, dl, fl in os.walk(source_folder):
-        print('source_folder', r, len(fl))
+        print('source_folder', r, len(fl), len(files))
         for f in fl:
             files.append(os.path.join(r, f))
 
@@ -81,7 +102,7 @@ dim = 512
 grabNow = False
 skipNow = False
 draggStart = None
-overlap = 1.25
+overlap = 1.0
 
 def on_mouse(event, x, y, flags, param):
     global lastx, lasty, dim, grabNow, skipNow, draggStart,coord_list,overlap
@@ -121,18 +142,73 @@ cv2.setMouseCallback('imageWindow', on_mouse)
 n = 0
 font = cv2.FONT_HERSHEY_SIMPLEX
 lastsave = None
+lastGrabs = []
 
-for f in files:
-    
+BUFSIZE      = 10**5
+
+popen_params = {"bufsize": BUFSIZE,
+              "stdout": sp.PIPE,
+              "stderr": sp.DEVNULL}
+
+def videoFrameGenerator(video_path):
+    procInfo = sp.Popen(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', video_path], **popen_params)
+    outs, errs = procInfo.communicate()
+    procInfo = json.loads( outs )
+
+    w,h=None,None
+    for stream in procInfo['streams']:
+        if 'width' in stream and 'height' in stream:
+            w = stream['width']
+            h = stream['height']
+
+    if w and h:
+
+        cmd = (['ffmpeg'] + ['-i', video_path] +
+               ['-loglevel',  'error',
+                '-f',         'image2pipe',
+                '-vf',        'select=eq(pict_type\\,I)*(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
+                "-pix_fmt",   'bgr24',
+                "-vsync", "drop",
+                '-vcodec',    'rawvideo', '-'])
+
+        proc = sp.Popen(cmd, **popen_params)
+        nbytes = 3 * w * h
+
+        n=0
+        while 1:
+            s = proc.stdout.read(nbytes)
+            print(len(s))
+            n+=1
+            if len(s) == nbytes:
+                result = np.frombuffer(s, dtype='uint8')
+                result.shape = (h,w,3)
+                yield str(n)+video_path, result
+            else:
+                break
+
+
+def frameGenerator(files):
+    for f in files:
+        imo = cv2.imread(f)
+        if imo is not None:
+            yield f, imo
+        else:
+            try:
+                vfg = videoFrameGenerator(f)
+                for f,imo in vfg:
+                    yield f,imo
+            except Exception as e:
+                print(e)
+
+
+
+fg = frameGenerator(files)
+
+for fi, (f, imo) in enumerate(fg):
+    skip = False
+
     norm_path = os.path.normpath(f)
-    norm_path = norm_path.split(os.sep)[2:-1]
-
-    print(norm_path)
-
-    skip=False
-    imo = cv2.imread(f)
-    if imo is None:
-        continue
+    norm_path = [xp.replace('&', ' ') for xp in norm_path.split(os.sep)[2:-1]]
 
     rect = cv2.getWindowImageRect('imageWindow')
     _, _, w, h = rect
@@ -227,7 +303,7 @@ for f in files:
             orig_clamp_dsy = min(max(orig_dsy, orig_halfdim),  imo.shape[0]-orig_halfdim)
 
             screenDist = math.sqrt(((clampx-clamp_dsx)**2)+((clampy-clamp_dsy)**2))
-            if screenDist > rdim//4:
+            if screenDist > rdim//8:
                 slices = (screenDist//(rdim/overlap))+2
                 xs = [int(x) for x in np.linspace(clamp_dsx, clampx, num=int(slices)).tolist()]
                 ys = [int(x) for x in np.linspace(clamp_dsy, clampy, num=int(slices)).tolist()]
@@ -236,39 +312,49 @@ for f in files:
                 sxs = [int(x) for x in np.linspace(orig_clamp_dsx, orig_clamp_x, num=int(slices)).tolist()]
                 sys = [int(x) for x in np.linspace(orig_clamp_dsy, orig_clamp_y, num=int(slices)).tolist()]
                 img_coords = list(zip(sxs, sys))
-                print(img_coords)
-
+ 
         poslist = ','.join(['{}x{}'.format(x-orig_halfdim, y-orig_halfdim) for x, y in img_coords])
 
-        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {}'.format(n, dim, poslist, len(list(img_coords)), overlap, f),
+        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
                          (0, fg.shape[0]-11), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
 
-        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {}'.format(n, dim, poslist, len(list(img_coords)), overlap, f),
+        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
                          (0, fg.shape[0]-11), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
-        for cx, cy in screen_coords:
+        for ci, (cx, cy) in enumerate(screen_coords):
             fg = cv2.rectangle(fg, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), colour, 1)
+            fg = cv2.putText(fg, '#{}'.format(ci+1), (int(cx-(rdim//2))+5, int(cy-(rdim//2))+15), font, 0.4, colour, 1, cv2.LINE_AA)
+
             if darken_bg:
                 darken = cv2.rectangle(darken, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), (0, 0, 0), -1)
 
         if darken_bg:
             fg[darken>0] = fg[darken>0]//2
 
+        xoffset = 11
+        for imgg in lastGrabs:
+            if xoffset+11+imgg.shape[0] < fg.shape[0]:
+                fg[xoffset+11:xoffset+11+imgg.shape[0],11:11+imgg.shape[0],:] = imgg
+                xoffset += imgg.shape[0]+10
+
         if grabNow:
             fn = os.path.basename(f)
-            print(img_coords)
-            for ix, iy in img_coords:
-                print(ix,iy)
+
+            for ix, iy in img_coords[::-1]:
                 n += 1
 
                 outfile = os.path.join('outdir', '{}_{}_out.png'.format(fn, n))
                 outfiletxt = os.path.join('outdir', '{}_{}_out.txt'.format(fn, n))
                 try:
-                    print(outfile)
-                    os.path.exists('outdir') or os.mkdir('outdir')
 
-                    cv2.imwrite(outfile, imo[iy-orig_halfdim:iy+orig_halfdim, ix-orig_halfdim:ix+orig_halfdim, :])
+                    os.path.exists('outdir') or os.mkdir('outdir')
+                    imslice = imo[iy-orig_halfdim:iy+orig_halfdim, ix-orig_halfdim:ix+orig_halfdim, :]
+                    cv2.imwrite(outfile, imslice)
                     open(outfiletxt, 'w').write(' '.join(norm_path))
+
+                    lastGrabs.insert(0,cv2.resize(imslice,(100,100)) )
+                    if len(lastGrabs)>25:
+                        lastGrabs.pop()
 
                     lastsave = outfile
                     print('saved', outfile)
