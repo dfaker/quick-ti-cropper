@@ -5,6 +5,7 @@ import random
 import sys
 import os
 import math
+import mimetypes
 import subprocess as sp
 import json
 
@@ -23,12 +24,17 @@ Ctrl and Mousewheel Change the overlap of crops when dragging.
 
 Optional Args:
 
-SHUFFLE - Shuffle Images.
-ONECLICK - Jump to next image on every click.
-LARGESTFIRST - Sort files by size, largest to smallest.
-MAXCROP - Initialize on each image with the largest possible crop size.
-DARKENBG - Darken the unselected areas of the image in preview.
-IFRAME_GAP=N - When cropping video frames, wait at least N seconds between Key frames.
+General options:
+    SHUFFLE - Shuffle Images.
+    ONECLICK - Jump to next image on every click.
+    LARGESTFIRST - Sort files by size, largest to smallest.
+    MAXCROP - Initialize on each image with the largest possible crop size.
+    DARKENBG - Darken the unselected areas of the image in preview.
+
+Video Options:
+    IFRAME_GAP=N - When cropping video frames, wait at least N seconds between Key frames.
+    VIDEO_START=N - When cropping video frames, Sart this many seconds or HH:MM:SS into the video.
+
 
 images are saved into .\\outdir\\
 
@@ -46,6 +52,7 @@ largest_first = False
 max_crop = False
 darken_bg = False
 seconds_between_iframes = 10
+video_start = 0
 
 for source_folder in sys.argv[1:]:
     if source_folder.upper() == 'SHUFFLE':
@@ -75,7 +82,13 @@ for source_folder in sys.argv[1:]:
         except Exception as e:
             print('Setting ARG IFRAME_GAP Failed')
         continue
-
+    if 'VIDEO_START=' in source_folder:
+        try:
+            video_start = source_folder.split('=')[-1]
+            print('ARG VIDEO_START=', video_start)
+        except Exception as e:
+            print('Setting ARG VIDEO_START Failed')
+        continue
 
     if os.path.isfile(source_folder):
         files.append(source_folder)
@@ -166,6 +179,7 @@ def videoFrameGenerator(video_path):
         cmd = (['ffmpeg'] + ['-i', video_path] +
                ['-loglevel',  'error',
                 '-f',         'image2pipe',
+                '-ss',        '{}'.format(video_start),
                 '-vf',        'select=eq(pict_type\\,I)*(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
                 "-pix_fmt",   'bgr24',
                 "-vsync", "drop",
