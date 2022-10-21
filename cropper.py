@@ -8,6 +8,10 @@ import math
 import mimetypes
 import subprocess as sp
 import json
+from threading import Thread
+from queue import Queue
+
+
 
 print("""
 Pass a folder of images or videos, or single files  as a prameter:
@@ -21,6 +25,7 @@ Mousewheel for resizing the box, Shift tot resize faster
 Left Click to capture the hilighted square
 Left Click and Drag to evenly spread a line of crops.
 Ctrl and Mousewheel Change the overlap of crops when dragging.
+B to skip to the next video during video frame cropping.
 
 Optional Args:
 
@@ -53,6 +58,7 @@ max_crop = False
 darken_bg = False
 seconds_between_iframes = 10
 video_start = 0
+fullscreen=True
 
 for source_folder in sys.argv[1:]:
     if source_folder.upper() == 'SHUFFLE':
@@ -70,6 +76,10 @@ for source_folder in sys.argv[1:]:
     if source_folder.upper() == 'MAXCROP':
         print('ARG MAXCROP=True')
         max_crop = True
+        continue
+    if source_folder.upper() == 'NOFULLSCREEN':
+        print('ARG NOFULLSCREEN=True')
+        fullscreen = False
         continue
     if source_folder.upper() == 'DARKENBG':
         print('ARG DARKENBG=True')
@@ -107,7 +117,8 @@ if largest_first:
     files = sorted(files, key=lambda x: os.stat(x).st_size, reverse=True)
 
 cv2.namedWindow("imageWindow", cv2.WND_PROP_FULLSCREEN)
-cv2.setWindowProperty("imageWindow", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+if fullscreen:
+    cv2.setWindowProperty("imageWindow", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
 lastx, lasty = 0, 0
 coord_list = []
@@ -163,11 +174,47 @@ popen_params = {"bufsize": BUFSIZE,
               "stdout": sp.PIPE,
               "stderr": sp.DEVNULL}
 
+
+class ThreadedGenerator(object):
+
+    def __init__(self, iterator,
+                 sentinel=object(),
+                 queue_maxsize=0,
+                 daemon=False,
+                 Thread=Thread,
+                 Queue=Queue):
+        self._iterator = iterator
+        self._sentinel = sentinel
+        self._queue = Queue(maxsize=queue_maxsize)
+        self._thread = Thread(
+            name=repr(iterator),
+            target=self._run
+        )
+        self._thread.daemon = daemon
+
+    def __repr__(self):
+        return 'ThreadedGenerator({!r})'.format(self._iterator)
+
+    def _run(self):
+        try:
+            for value in self._iterator:
+                self._queue.put(value)
+        finally:
+            self._queue.put(self._sentinel)
+
+    def __iter__(self):
+        self._thread.start()
+        for value in iter(self._queue.get, self._sentinel):
+            yield value
+
+        self._thread.join()
+
+
+
 def videoFrameGenerator(video_path):
     procInfo = sp.Popen(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', video_path], **popen_params)
     outs, errs = procInfo.communicate()
     procInfo = json.loads( outs )
-
     w,h=None,None
     for stream in procInfo['streams']:
         if 'width' in stream and 'height' in stream:
@@ -182,6 +229,7 @@ def videoFrameGenerator(video_path):
                 '-loglevel',  'error',
                 '-f',         'image2pipe',
                 "-an", "-sn", '-dn',
+                "-bufsize",   "20M",
                 '-vf',        'select=(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
                 "-pix_fmt",   'bgr24',
                 "-vsync",     "vfr",
@@ -193,7 +241,6 @@ def videoFrameGenerator(video_path):
         n=0
         while 1:
             s = proc.stdout.read(nbytes)
-            print(len(s))
             n+=1
             if len(s) == nbytes:
                 result = np.frombuffer(s, dtype='uint8')
@@ -203,191 +250,215 @@ def videoFrameGenerator(video_path):
                 break
 
 
-def frameGenerator(files):
+def frameGenerator(file_path):
+    imo = cv2.imread(file_path)
+    if imo is not None:
+        yield 'Image Still', file_path, imo
+    else:
+        try:
+            vfg = ThreadedGenerator(videoFrameGenerator(file_path), queue_maxsize=100, daemon=True)
+            for f, imo in vfg:
+                yield 'Video Frame', f, imo
+        except Exception as e:
+            print(e)
+
+def fileGenerator(files):
     for f in files:
-        imo = cv2.imread(f)
-        if imo is not None:
-            yield f, imo
-        else:
-            try:
-                vfg = videoFrameGenerator(f)
-                for f,imo in vfg:
-                    yield f,imo
-            except Exception as e:
-                print(e)
+        yield f
 
+fgen = fileGenerator(files)
+fg=None
+k=ord('q')
 
+for fi, base_file in enumerate(fgen):
+    
+    if fg is None:
+        rect = cv2.getWindowImageRect('imageWindow')
+        _, _, w, h = rect
+        fg = np.zeros((h,w,3), np.uint8)
+    fg = np.zeros_like(fg)
+    text_size = cv2.getTextSize('Loading Next Image from {}'.format(base_file), font, 0.5, 1)[0]
+    fg = cv2.putText(fg, 'Loading Next Image from {}'.format(base_file), (fg.shape[1]//2-(text_size[0]//2), fg.shape[0]//2), font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.imshow('imageWindow', fg)
+    k = cv2.pollKey()
 
-fg = frameGenerator(files)
+    for iframe, (frame_type, f, imo) in enumerate(frameGenerator(base_file)):
+        skip = False
 
-for fi, (f, imo) in enumerate(fg):
-    skip = False
+        norm_path = os.path.normpath(f)
+        norm_path = [xp.replace('&', ' ') for xp in norm_path.split(os.sep)[2:-1]]
 
-    norm_path = os.path.normpath(f)
-    norm_path = [xp.replace('&', ' ') for xp in norm_path.split(os.sep)[2:-1]]
+        rect = cv2.getWindowImageRect('imageWindow')
+        _, _, w, h = rect
 
-    rect = cv2.getWindowImageRect('imageWindow')
-    _, _, w, h = rect
+        old_size = imo.shape[:2]
+        oh, ow = old_size
 
-    old_size = imo.shape[:2]
-    oh, ow = old_size
+        ratiow = float(w)/float(ow)
+        ratioh = float(h)/float(oh)
 
-    ratiow = float(w)/float(ow)
-    ratioh = float(h)/float(oh)
+        ratio = min(min(ratiow, ratioh), 1)
 
-    ratio = min(min(ratiow, ratioh), 1)
+        new_size = tuple([int(x*ratio) for x in old_size])
 
-    new_size = tuple([int(x*ratio) for x in old_size])
+        im = cv2.resize(imo, (new_size[1], new_size[0]))
 
-    im = cv2.resize(imo, (new_size[1], new_size[0]))
+        delta_w = w - new_size[1]
+        delta_h = h - new_size[0]
+        top, bottom = delta_h//2, delta_h-(delta_h//2)
+        left, right = delta_w//2, delta_w-(delta_w//2)
 
-    delta_w = w - new_size[1]
-    delta_h = h - new_size[0]
-    top, bottom = delta_h//2, delta_h-(delta_h//2)
-    left, right = delta_w//2, delta_w-(delta_w//2)
+        color = [0, 0, 0]
 
-    color = [0, 0, 0]
+        padded_im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
 
-    padded_im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+        dim=512
+        smallest_dim = min(oh, ow)
+        k = 0
 
-    dim=512
-    smallest_dim = min(oh, ow)
-    k = 0
+        if max_crop:
+            while dim+16 <= smallest_dim:
+                dim += 16
 
-    if max_crop:
-        while dim+16 <= smallest_dim:
-            dim += 16
-
-    screen_coords = []
-    img_coords = []
-    if darken_bg:
-        darken_src = np.ones_like(padded_im)
-
-    while 1:
-
-        while dim >= smallest_dim:
-            dim -= 16
-
-        fg = padded_im.copy()
-        
+        screen_coords = []
+        img_coords = []
         if darken_bg:
-            darken = darken_src.copy()
-        
-        colour = (255, 0, 0)
-        if dim == 512:
-            colour = (0, 255, 0)
-        elif dim < 512:
-            colour = (0, 0, 255)
+            darken_src = np.ones_like(padded_im)
 
-        if lastsave is not None:
-            tcolour = (255, 255, 255)
-            if lastsave.startswith('FAILED '):
-                tcolour = (0, 0, 255)
-            fg = cv2.putText(fg, 'Saved:{}'.format(lastsave), (0, 11), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
-            fg = cv2.putText(fg, 'Saved:{}'.format(lastsave), (0, 11), font, 0.4, tcolour, 1, cv2.LINE_AA)
+        first_show = True
 
-        rdim = dim*ratio
+        lastloopKey = None
+        while 1:
 
-        halfdim = rdim//2
-        clampx = min(max(lastx, left+halfdim), padded_im.shape[1]-right-halfdim)
-        clampy = min(max(lasty, top+halfdim), padded_im.shape[0]-bottom-halfdim)
+            while dim >= smallest_dim:
+                dim -= 16
 
-        orig_x = max(0, int(((clampx-left)/ratio)))
-        orig_y = max(0, int(((clampy-top)/ratio)))
-
-        orig_halfdim = dim//2
-        orig_clamp_x = min(max(orig_x, orig_halfdim),  imo.shape[1]-orig_halfdim)
-        orig_clamp_y = min(max(orig_y, orig_halfdim),  imo.shape[0]-orig_halfdim)
-
-        orig_clamp_dsx, orig_clamp_dsy = orig_clamp_x, orig_clamp_y
-
-        if not grabNow:
-            screen_coords = [(clampx, clampy)]
-            img_coords = [(orig_clamp_x, orig_clamp_y)]
-
-        if draggStart:
-            dsx, dsy = draggStart
-
-            clamp_dsx = min(max(dsx, left+halfdim), padded_im.shape[1]-right-halfdim)
-            clamp_dsy = min(max(dsy, top+halfdim),  padded_im.shape[0]-bottom-halfdim)
-
-            orig_dsx = max(0, int(((clamp_dsx-left)/ratio)))
-            orig_dsy = max(0, int(((clamp_dsy-top)/ratio)))
-
-            orig_halfdim = dim//2
-            orig_clamp_dsx = min(max(orig_dsx, orig_halfdim),  imo.shape[1]-orig_halfdim)
-            orig_clamp_dsy = min(max(orig_dsy, orig_halfdim),  imo.shape[0]-orig_halfdim)
-
-            screenDist = math.sqrt(((clampx-clamp_dsx)**2)+((clampy-clamp_dsy)**2))
-            if screenDist > rdim//8:
-                slices = (screenDist//(rdim/overlap))+2
-                xs = [int(x) for x in np.linspace(clamp_dsx, clampx, num=int(slices)).tolist()]
-                ys = [int(x) for x in np.linspace(clamp_dsy, clampy, num=int(slices)).tolist()]
-                screen_coords = list(zip(xs, ys))
-
-                sxs = [int(x) for x in np.linspace(orig_clamp_dsx, orig_clamp_x, num=int(slices)).tolist()]
-                sys = [int(x) for x in np.linspace(orig_clamp_dsy, orig_clamp_y, num=int(slices)).tolist()]
-                img_coords = list(zip(sxs, sys))
- 
-        poslist = ','.join(['{}x{}'.format(x-orig_halfdim, y-orig_halfdim) for x, y in img_coords])
-
-        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
-                         (0, fg.shape[0]-11), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
-
-        fg = cv2.putText(fg, 'Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
-                         (0, fg.shape[0]-11), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-
-        for ci, (cx, cy) in enumerate(screen_coords):
-            fg = cv2.rectangle(fg, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), colour, 1)
-            fg = cv2.putText(fg, '#{}'.format(ci+1), (int(cx-(rdim//2))+5, int(cy-(rdim//2))+15), font, 0.4, colour, 1, cv2.LINE_AA)
+            fg = padded_im.copy()
 
             if darken_bg:
-                darken = cv2.rectangle(darken, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), (0, 0, 0), -1)
+                darken = darken_src.copy()
 
-        if darken_bg:
-            fg[darken>0] = fg[darken>0]//2
+            colour = (255, 0, 0)
+            if dim == 512:
+                colour = (0, 255, 0)
+            elif dim < 512:
+                colour = (0, 0, 255)
 
-        xoffset = 11
-        for imgg in lastGrabs:
-            if xoffset+11+imgg.shape[0] < fg.shape[0]:
-                fg[xoffset+11:xoffset+11+imgg.shape[0],11:11+imgg.shape[0],:] = imgg
-                xoffset += imgg.shape[0]+10
+            if lastsave is not None:
+                tcolour = (255, 255, 255)
+                if lastsave.startswith('FAILED '):
+                    tcolour = (0, 0, 255)
+                fg = cv2.putText(fg, 'Saved:{}'.format(lastsave), (0, 11), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
+                fg = cv2.putText(fg, 'Saved:{}'.format(lastsave), (0, 11), font, 0.4, tcolour, 1, cv2.LINE_AA)
 
-        if grabNow:
-            fn = os.path.basename(f)
+            rdim = dim*ratio
 
-            for ix, iy in img_coords[::-1]:
-                n += 1
+            halfdim = rdim//2
+            clampx = min(max(lastx, left+halfdim), padded_im.shape[1]-right-halfdim)
+            clampy = min(max(lasty, top+halfdim), padded_im.shape[0]-bottom-halfdim)
 
-                outfile = os.path.join('outdir', '{}_{}_out.png'.format(fn, n))
-                outfiletxt = os.path.join('outdir', '{}_{}_out.txt'.format(fn, n))
-                try:
+            orig_x = max(0, int(((clampx-left)/ratio)))
+            orig_y = max(0, int(((clampy-top)/ratio)))
 
-                    os.path.exists('outdir') or os.mkdir('outdir')
-                    imslice = imo[iy-orig_halfdim:iy+orig_halfdim, ix-orig_halfdim:ix+orig_halfdim, :]
-                    cv2.imwrite(outfile, imslice)
-                    open(outfiletxt, 'w').write(' '.join(norm_path))
+            orig_halfdim = dim//2
+            orig_clamp_x = min(max(orig_x, orig_halfdim),  imo.shape[1]-orig_halfdim)
+            orig_clamp_y = min(max(orig_y, orig_halfdim),  imo.shape[0]-orig_halfdim)
 
-                    lastGrabs.insert(0,cv2.resize(imslice,(100,100)) )
-                    if len(lastGrabs)>25:
-                        lastGrabs.pop()
+            orig_clamp_dsx, orig_clamp_dsy = orig_clamp_x, orig_clamp_y
 
-                    lastsave = outfile
-                    print('saved', outfile)
-                    
-                    grabNow = False
-                    if one_click:
-                        skip = True
-                except Exception as e:
-                    print(e)
-                    lastsave = 'FAILED '+outfile
-                    grabNow = False
+            if not grabNow:
+                screen_coords = [(clampx, clampy)]
+                img_coords = [(orig_clamp_x, orig_clamp_y)]
 
-        cv2.imshow('imageWindow', fg)
+            if draggStart:
+                dsx, dsy = draggStart
 
-        k = cv2.waitKey(1)
-        if k != -1 or skip or skipNow:
-            skipNow = False
+                clamp_dsx = min(max(dsx, left+halfdim), padded_im.shape[1]-right-halfdim)
+                clamp_dsy = min(max(dsy, top+halfdim),  padded_im.shape[0]-bottom-halfdim)
+
+                orig_dsx = max(0, int(((clamp_dsx-left)/ratio)))
+                orig_dsy = max(0, int(((clamp_dsy-top)/ratio)))
+
+                orig_halfdim = dim//2
+                orig_clamp_dsx = min(max(orig_dsx, orig_halfdim),  imo.shape[1]-orig_halfdim)
+                orig_clamp_dsy = min(max(orig_dsy, orig_halfdim),  imo.shape[0]-orig_halfdim)
+
+                screenDist = math.sqrt(((clampx-clamp_dsx)**2)+((clampy-clamp_dsy)**2))
+                if screenDist > rdim//8:
+                    slices = (screenDist//(rdim/overlap))+2
+                    xs = [int(x) for x in np.linspace(clamp_dsx, clampx, num=int(slices)).tolist()]
+                    ys = [int(x) for x in np.linspace(clamp_dsy, clampy, num=int(slices)).tolist()]
+                    screen_coords = list(zip(xs, ys))
+
+                    sxs = [int(x) for x in np.linspace(orig_clamp_dsx, orig_clamp_x, num=int(slices)).tolist()]
+                    sys = [int(x) for x in np.linspace(orig_clamp_dsy, orig_clamp_y, num=int(slices)).tolist()]
+                    img_coords = list(zip(sxs, sys))
+
+            poslist = ','.join(['{}x{}'.format(x-orig_halfdim, y-orig_halfdim) for x, y in img_coords])
+
+            fg = cv2.putText(fg, '{} Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(frame_type, n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
+                             (0, fg.shape[0]-11), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
+
+            fg = cv2.putText(fg, '{} Sample:{} Size:{} Pos:{} ({} crops, overlap:{}) - {} {}/{}'.format(frame_type, n, dim, poslist, len(list(img_coords)), overlap, f, fi, len(files)),
+                             (0, fg.shape[0]-11), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+
+            for ci, (cx, cy) in enumerate(screen_coords):
+                fg = cv2.rectangle(fg, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), colour, 1)
+                fg = cv2.putText(fg, '#{}'.format(ci+1), (int(cx-(rdim//2))+5, int(cy-(rdim//2))+15), font, 0.4, colour, 1, cv2.LINE_AA)
+
+                if darken_bg:
+                    darken = cv2.rectangle(darken, (int(cx-(rdim//2)), int(cy-(rdim//2))), (int(cx+(rdim//2)), int(cy+(rdim//2))), (0, 0, 0), -1)
+
+            if darken_bg:
+                fg[darken>0] = fg[darken>0]//2
+
+            xoffset = 11
+            for imgg in lastGrabs:
+                if xoffset+11+imgg.shape[0] < fg.shape[0]:
+                    fg[xoffset+11:xoffset+11+imgg.shape[0],11:11+imgg.shape[0],:] = imgg
+                    xoffset += imgg.shape[0]+10
+
+            if grabNow:
+                fn = os.path.basename(f)
+
+                for ix, iy in img_coords[::-1]:
+                    n += 1
+
+                    outfile = os.path.join('outdir', '{}_{}_out.png'.format(fn, n))
+                    outfiletxt = os.path.join('outdir', '{}_{}_out.txt'.format(fn, n))
+                    try:
+
+                        os.path.exists('outdir') or os.mkdir('outdir')
+                        imslice = imo[iy-orig_halfdim:iy+orig_halfdim, ix-orig_halfdim:ix+orig_halfdim, :]
+                        cv2.imwrite(outfile, imslice)
+                        open(outfiletxt, 'w').write(' '.join(norm_path))
+
+                        lastGrabs.insert(0,cv2.resize(imslice,(100,100)) )
+                        if len(lastGrabs)>25:
+                            lastGrabs.pop()
+
+                        lastsave = outfile
+                        print('saved', outfile)
+
+                        grabNow = False
+                        if one_click:
+                            skip = True
+                    except Exception as e:
+                        print(e)
+                        lastsave = 'FAILED '+outfile
+                        grabNow = False
+
+            cv2.imshow('imageWindow', fg)
+
+            k = cv2.pollKey()
+            first_show = False
+
+            if k != -1 or skip or skipNow:
+                skipNow = False
+                lastk=k
+                break
+
+        if k in (ord('q'),ord('b')):
             break
 
     if k == ord('q'):
