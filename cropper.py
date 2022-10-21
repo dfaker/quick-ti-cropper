@@ -10,7 +10,7 @@ import subprocess as sp
 import json
 from threading import Thread
 from queue import Queue
-
+import glob
 
 
 print("""
@@ -85,7 +85,7 @@ for source_folder in sys.argv[1:]:
         print('ARG DARKENBG=True')
         darken_bg = True
         continue
-    if 'IFRAME_GAP=' in source_folder:
+    if 'IFRAME_GAP=' in source_folder.upper():
         try:
             seconds_between_iframes = float(source_folder.split('=')[-1])
             print('ARG IFRAME_GAP=', seconds_between_iframes)
@@ -102,14 +102,25 @@ for source_folder in sys.argv[1:]:
 
     if os.path.isfile(source_folder):
         files.append(source_folder)
-    elif not os.path.isdir(source_folder):
-        print('source_folder', source_folder, 'does not exist.')
-        continue
+    elif os.path.isdir(source_folder):
+        for r, dl, fl in os.walk(source_folder):
+            print('source_folder', r, len(fl), len(files))
+            for f in fl:
+                files.append(os.path.join(r, f))
+    else:
+        globFound=False
+        for root in glob.glob(source_folder):
+            globFound=True
+            for r, dl, fl in os.walk(root):
+                print('source_folder', r, len(fl), len(files))
+                for f in fl:
+                    files.append(os.path.join(r, f))
+        if not globFound:
+            print(source_folder,'is not a valid file, directory or glob')
 
-    for r, dl, fl in os.walk(source_folder):
-        print('source_folder', r, len(fl), len(files))
-        for f in fl:
-            files.append(os.path.join(r, f))
+if len(files) == 0:
+    print('Zero files loaded.')
+    exit()
 
 if shuffle:
     random.shuffle(files)
@@ -160,7 +171,6 @@ def on_mouse(event, x, y, flags, param):
         draggStart = None
         skipNow = True
 
-
 cv2.setMouseCallback('imageWindow', on_mouse)
 
 n = 0
@@ -209,45 +219,67 @@ class ThreadedGenerator(object):
 
         self._thread.join()
 
+class VideoFrameGenerator:
 
+    def __init__(self, video_path):
+        self.video_path = video_path
 
-def videoFrameGenerator(video_path):
-    procInfo = sp.Popen(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', video_path], **popen_params)
-    outs, errs = procInfo.communicate()
-    procInfo = json.loads( outs )
-    w,h=None,None
-    for stream in procInfo['streams']:
-        if 'width' in stream and 'height' in stream:
-            w = stream['width']
-            h = stream['height']
+        procInfo = sp.Popen(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', video_path], **popen_params)
+        outs, errs = procInfo.communicate()
+        procInfo = json.loads( outs )
+        w,h=None,None
 
-    if w and h:
+        for stream in procInfo['streams']:
+            
+            if 'width' in stream and 'height' in stream:
+                sar = 1
+                try:
+                    a,b = stream['sample_aspect_ratio'].split(':')
+                    sar = float(a)/float(b)
+                except Exception as e:
+                    pass
+                w = int(stream['width']*sar)
+                h = stream['height']
 
-        cmd = (['ffmpeg', "-discard", "nokey",
-                '-ss', '{}'.format(video_start),
-                '-i', video_path,
-                '-loglevel',  'error',
-                '-f',         'image2pipe',
-                "-an", "-sn", '-dn',
-                "-bufsize",   "20M",
-                '-vf',        'select=(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{}))'.format(seconds_between_iframes),
-                "-pix_fmt",   'bgr24',
-                "-vsync",     "vfr",
-                '-vcodec',    'rawvideo', '-'])
+        self.proc = None
+        self.nbytes = None
+        if w and h:
+            cmd = (['ffmpeg', "-discard", "nokey",
+                    '-ss', '{}'.format(video_start),
+                    '-i', video_path,
+                    '-loglevel',  'error',
+                    '-f',         'image2pipe',
+                    "-an", "-sn", '-dn',
+                    "-bufsize",   "20M",
+                    '-vf',        'select=(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{})),scale=w=in_w*sar:h=in_h,setsar=1'.format(seconds_between_iframes),
+                    "-pix_fmt",   'bgr24',
+                    "-vsync",     "vfr",
+                    '-vcodec',    'rawvideo', '-'])
 
-        proc = sp.Popen(cmd, **popen_params)
-        nbytes = 3 * w * h
+            self.proc = sp.Popen(cmd, **popen_params)
+            self.nbytes = 3 * w * h
+            self.h = h
+            self.w = w
 
+    def __iter__(self):
         n=0
-        while 1:
-            s = proc.stdout.read(nbytes)
+        while self.proc is not None:
+            s = self.proc.stdout.read(self.nbytes)
             n+=1
-            if len(s) == nbytes:
+            if len(s) == self.nbytes:
                 result = np.frombuffer(s, dtype='uint8')
-                result.shape = (h,w,3)
-                yield str(n)+video_path, result
+                result.shape = (self.h,self.w,3)
+                yield str(n)+self.video_path, result
             else:
                 break
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        self.proc.kill()
+        self.proc.communicate()
+        self.proc.kill()
 
 
 def frameGenerator(file_path):
@@ -256,11 +288,13 @@ def frameGenerator(file_path):
         yield 'Image Still', file_path, imo
     else:
         try:
-            vfg = ThreadedGenerator(videoFrameGenerator(file_path), queue_maxsize=100, daemon=True)
-            for f, imo in vfg:
-                yield 'Video Frame', f, imo
+            with VideoFrameGenerator(file_path) as videoFrameGen:
+                vfg = ThreadedGenerator(videoFrameGen, queue_maxsize=100, daemon=True)
+                for f, imo in vfg:
+                    yield 'Video Frame', f, imo
         except Exception as e:
             print(e)
+
 
 def fileGenerator(files):
     for f in files:
