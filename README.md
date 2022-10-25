@@ -39,12 +39,6 @@ cropper.py [OptionalArgs] Z:\\somefolder\\somewhere
 - **Ctrl and Mousewheel** Change the overlap of crops when dragging.
 - **B** Skip to the next video during video frame cropping.
 - **A** and **D** to go back and forwards in frame history
-- **Right Click** or Space for next image.
-- **Mousewheel** for resizing the box, Shift tot resize faster
-- **Left Click** to capture the hilighted square
-- **Left Click and Drag** to evenly spread a line of crops.
-- **Ctrl and Mousewheel** Change the overlap of crops when dragging.
-- **B** to skip to the next video during video frame cropping.
 - **R** to rotate the image clockwise.
 
 ## Optional Args:
