@@ -29,22 +29,50 @@ Pass a folder of images as a prameter:
 
 cropper.py [OptionalArgs] Z:\\somefolder\\somewhere
 
- - **Right Click** or **Space** for next image.
- - **Mousewheel** for resizing the box, Shift tot resize faster
- - **Left Click** to capture the hilighted square
- - **Left Click and Drag** to evenly spread a line of crops.
- - **Ctrl and Mousewheel** Change the overlap of crops when dragging.
- - **B** Skip to the next video during video frame cropping.
- 
-Optional Args:
 
- - **SHUFFLE** - Shuffle Images.
- - **ONECLICK** - Jump to next image on every click.
- - **LARGESTFIRST** - Sort files by size, largest to smallest.
- - **MAXCROP** - Initialize on each image with the largest possible crop size.
- - **DARKENBG** - Darken the unselected areas of the image in preview.
- - **IFRAME_GAP=N** - When cropping video frames, wait at least N seconds between Key frames.
- - **VIDEO_START=N** - When cropping video frames, Sart this many seconds or HH:MM:SS into the video.
+## Keys:
+
+- **Right Click** or **Space** for next image.
+- **Mousewheel** for resizing the box, Shift tot resize faster
+- **Left Click** to capture the hilighted square
+- **Left Click and Drag** to evenly spread a line of crops.
+- **Ctrl and Mousewheel** Change the overlap of crops when dragging.
+- **B** Skip to the next video during video frame cropping.
+- **A** and **D** to go back and forwards in frame history
+- **Right Click** or Space for next image.
+- **Mousewheel** for resizing the box, Shift tot resize faster
+- **Left Click** to capture the hilighted square
+- **Left Click and Drag** to evenly spread a line of crops.
+- **Ctrl and Mousewheel** Change the overlap of crops when dragging.
+- **B** to skip to the next video during video frame cropping.
+- **R** to rotate the image clockwise.
+
+## Optional Args:
+
+### General options:
+- **SHUFFLE** - Shuffle Images.
+- **ONECLICK** - Jump to next image on every click.
+- **LARGESTFIRST** - Sort files by size, largest to smallest.
+- **MAXCROP** - Initialize on each image with the largest possible crop size.
+- **DARKENBG** - Darken the unselected areas of the image in preview.
+- **WHOLEFRAME** - don't crop, take the whole frame
+- **SLIDESHOW_TIMEOUT** - timeout to skip to next image automatically
+- **SKIPTXT** - Do not create caption .txt files
+- **NOSCALE** - Do not scale final images down to TARGET_SIZExTARGET_SIZE
+- **NOIMAGES** - Skip display of image files.
+- **NOVIDEO** - Skip display of video frames.
+- **MAX_FILE_SIZE=N** - Do not load files over N MB in size.
+- **TARGET_SIZE=N** - Set the target dimension in pixels (Default 512)
+- **OUTDIR=DIR** - Output to a directory called DIR
+    **ALLOW_SMALLER_CROP** - Allow crops smaller than TARGET_SIZExTARGET_SIZE
+
+### Video Options:
+- **IFRAME_GAP=N** - When cropping video frames, wait at least N seconds between Key frames (Default 10).
+- **VIDEO_START=N** - When cropping video frames, Sart this many seconds or HH:MM:SS into the video
+
+### Cache Limits:
+- **FRAME_FWD_CACHE=N** - The maximum number of bytes to use for a forward frame cache when cropping video frames (Default 1GB).
+- **FRAME_HIST_CACHE=N** - The maximum number of bytes to use to keep images in history so they can be skipped back to (Default 1GB).
 
  
 images are saved into .\\outdir\\
