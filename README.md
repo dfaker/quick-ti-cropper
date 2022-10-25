@@ -79,7 +79,7 @@ images are saved into .\\outdir\\
 
 ![image](https://user-images.githubusercontent.com/35278260/196969198-acc055e0-a77d-4db4-9e97-f1e836bd2f90.png)
 
-![image](https://user-images.githubusercontent.com/35278260/197090519-5381d622-47b8-45ac-bdc6-be30f6f7f18a.png)
+![image](https://user-images.githubusercontent.com/35278260/197861704-e53910e5-3a30-4148-8f43-a0dda8f77a89.png)
 
 
 # getframes.py
